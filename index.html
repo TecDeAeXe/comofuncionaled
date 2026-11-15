@@ -1,47 +1,670 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Cómo funciona un LED - Modelo Interactivo</title>
-    
-    <!-- Tailwind CSS (opcional, pero incluido según las mejores prácticas para escalar el proyecto) -->
-    <script src="https://cdn.tailwindcss.com"></script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0b0f14">
+<meta name="description" content="Modelo interactivo para descubrir cómo un LED produce luz. Optimizado para móviles, tablets y escritorio.">
+<meta name="format-detection" content="telephone=no">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Cómo funciona un LED">
+<meta property="og:title" content="Cómo funciona un LED · Modelo interactivo">
+<meta property="og:description" content="Explora el modelo interactivo y descubre cómo un LED genera luz. Diseñado para móvil, tablet y escritorio.">
+<meta property="og:type" content="website">
 
-    <style>
-        /* Estilos personalizados para asegurar pantalla completa absoluta */
-        html, body {
-            margin: 0;
-            padding: 0;
-            width: 100%;
-            height: 100%;
-            overflow: hidden; /* Evita cualquier barra de desplazamiento (scroll) */
-            background-color: #111827; /* Un fondo oscuro (gray-900) para que el modelo resalte */
-        }
+<title>Cómo funciona un LED · Modelo interactivo</title>
 
-        .fullscreen-iframe {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            border: none;
-            /* Suaviza un poco los bordes en pantallas muy grandes si se desea, aunque en pantalla completa no se notará */
-            border-radius: 0; 
+<!-- El modelo vive en un iframe externo: adelantamos la conexión para que cargue antes en redes móviles -->
+<link rel="preconnect" href="https://www.things-workshop.com" crossorigin>
+<link rel="dns-prefetch" href="https://www.things-workshop.com">
+
+<style>
+    /* ============================================================
+       1. Tokens y base
+       ============================================================ */
+    :root {
+        --bg: #0b0f14;
+        --surface: rgba(15, 23, 42, .78);
+        --border: rgba(148, 163, 184, .22);
+        --text: #e2e8f0;
+        --muted: #94a3b8;
+        --accent: #38bdf8;
+
+        /* Adaptables por tipo de puntero y tamaño de pantalla */
+        --btn-size: 44px;
+        --ui-inset: 12px;
+        --radius: 14px;
+
+        --fs-sm: clamp(.78rem, 2.4vw, .875rem);
+        --fs-md: clamp(.875rem, 2.6vw, 1rem);
+        --fs-lg: clamp(1.05rem, 3.4vw, 1.35rem);
+    }
+
+    @media (pointer: coarse) {
+        :root { --btn-size: 48px; --ui-inset: 14px; }
+    }
+
+    @media (max-width: 360px) {
+        :root { --ui-inset: 8px; --radius: 12px; }
+    }
+
+    *, *::before, *::after { box-sizing: border-box; }
+
+    [hidden] { display: none !important; }
+
+    html {
+        height: 100%;
+        -webkit-text-size-adjust: 100%;
+        text-size-adjust: 100%;
+        -webkit-tap-highlight-color: transparent;
+        color-scheme: dark;
+    }
+
+    body {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+        overflow: hidden;
+        overscroll-behavior: none;
+        background: var(--bg);
+        color: var(--text);
+        font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+                     "Helvetica Neue", Arial, "Noto Sans", sans-serif;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+    }
+
+    /* ============================================================
+       2. Contenedor raíz (alto real del viewport visible)
+       ============================================================ */
+    .app {
+        position: fixed;
+        inset: 0 0 auto 0;
+        height: 100vh;                       /* respaldo para navegadores antiguos */
+        height: var(--app-h, 100dvh);        /* dvh + altura medida con visualViewport */
+        overflow: hidden;
+        background: var(--bg);
+        isolation: isolate;
+    }
+
+    /* ============================================================
+       3. Escenario del modelo
+       ============================================================ */
+    .stage {
+        position: absolute;
+        inset: 0;
+        overflow: hidden;
+        background: var(--bg);
+        /* Respeta notch, isla dinámica y barra de gestos sin dejar franjas visibles */
+        padding: env(safe-area-inset-top) env(safe-area-inset-right)
+                 env(safe-area-inset-bottom) env(safe-area-inset-left);
+    }
+
+    .frame {
+        display: block;
+        width: 100%;
+        height: 100%;
+        border: 0;
+        background: transparent;
+        color-scheme: normal;
+    }
+
+    /* ============================================================
+       4. Capas de estado: cargando / error
+       ============================================================ */
+    .overlay {
+        position: absolute;
+        inset: 0;
+        z-index: 10;
+        display: grid;
+        place-content: center;
+        justify-items: center;
+        gap: 14px;
+        padding: clamp(20px, 6vw, 48px);
+        text-align: center;
+        background:
+            radial-gradient(120% 90% at 50% 0%, rgba(56, 189, 248, .10), transparent 60%),
+            var(--bg);
+        transition: opacity .45s ease, visibility .45s ease;
+    }
+
+    .overlay.is-hidden {
+        opacity: 0;
+        visibility: hidden;
+        pointer-events: none;
+    }
+
+    .overlay__title {
+        margin: 0;
+        font-size: var(--fs-lg);
+        font-weight: 650;
+        letter-spacing: -.01em;
+    }
+
+    .overlay__hint {
+        margin: 0;
+        max-width: 42ch;
+        font-size: var(--fs-md);
+        line-height: 1.55;
+        color: var(--muted);
+        text-wrap: pretty;
+    }
+
+    .overlay__actions {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 10px;
+        margin-top: 6px;
+        width: 100%;
+    }
+
+    .spinner {
+        width: clamp(32px, 8vw, 40px);
+        aspect-ratio: 1;
+        border-radius: 50%;
+        border: 3px solid rgba(148, 163, 184, .25);
+        border-top-color: var(--accent);
+        animation: spin .9s linear infinite;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .action {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 44px;
+        padding: 0 18px;
+        border: 1px solid transparent;
+        border-radius: 12px;
+        background: var(--accent);
+        color: #04121a;
+        font: inherit;
+        font-size: var(--fs-md);
+        font-weight: 650;
+        text-decoration: none;
+        cursor: pointer;
+        touch-action: manipulation;
+        transition: transform .15s ease, filter .15s ease;
+    }
+
+    .action:hover { filter: brightness(1.08); }
+    .action:active { transform: scale(.97); }
+
+    .action--ghost {
+        background: transparent;
+        border-color: var(--border);
+        color: var(--text);
+    }
+
+    .action:focus-visible,
+    .btn:focus-visible,
+    .rotate__close:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
+    }
+
+    /* ============================================================
+       5. Barra de herramientas flotante
+       ============================================================ */
+    .toolbar {
+        position: absolute;
+        z-index: 20;
+        right: max(var(--ui-inset), env(safe-area-inset-right));
+        bottom: max(var(--ui-inset), env(safe-area-inset-bottom));
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        padding: 5px;
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        background: var(--surface);
+        box-shadow: 0 10px 30px rgba(0, 0, 0, .38);
+        -webkit-backdrop-filter: blur(12px) saturate(140%);
+        backdrop-filter: blur(12px) saturate(140%);
+        opacity: .95;
+        transition: opacity .2s ease;
+    }
+
+    @media (hover: hover) {
+        .toolbar { opacity: .72; }
+        .toolbar:hover,
+        .toolbar:focus-within { opacity: 1; }
+    }
+
+    .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 9px;
+        width: var(--btn-size);
+        height: var(--btn-size);
+        min-width: var(--btn-size);
+        padding: 0;
+        border: 0;
+        border-radius: 999px;
+        background: transparent;
+        color: var(--text);
+        font: inherit;
+        font-size: var(--fs-sm);
+        font-weight: 600;
+        text-decoration: none;
+        cursor: pointer;
+        touch-action: manipulation;
+        -webkit-user-select: none;
+        user-select: none;
+        transition: background-color .18s ease, color .18s ease, transform .15s ease;
+    }
+
+    .btn:hover { background: rgba(148, 163, 184, .16); }
+    .btn:active { transform: scale(.94); }
+
+    .ico {
+        width: 20px;
+        height: 20px;
+        flex: none;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 1.8;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+    }
+
+    .btn__label { display: none; }
+
+    /* En pantallas amplias (tablet grande y escritorio) los botones muestran texto */
+    @media (min-width: 820px) {
+        .toolbar { gap: 6px; padding: 6px; }
+        .btn {
+            width: auto;
+            min-width: var(--btn-size);
+            padding: 0 16px;
         }
-    </style>
+        .btn__label { display: inline; }
+    }
+
+    /* Móvil en horizontal: el alto es escaso, así que la barra se compacta */
+    @media (orientation: landscape) and (max-height: 480px) {
+        .toolbar { padding: 4px; gap: 2px; }
+        .btn { width: 40px; height: 40px; min-width: 40px; }
+        .ico { width: 18px; height: 18px; }
+    }
+
+    /* ============================================================
+       6. Sugerencia de rotación (solo teléfonos en vertical)
+       ============================================================ */
+    .rotate {
+        position: absolute;
+        z-index: 25;
+        top: max(var(--ui-inset), env(safe-area-inset-top));
+        left: max(var(--ui-inset), env(safe-area-inset-left));
+        right: max(var(--ui-inset), env(safe-area-inset-right));
+        margin-inline: auto;
+        display: none;
+        align-items: center;
+        gap: 10px;
+        max-width: min(92vw, 420px);
+        padding: 11px 13px;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background: var(--surface);
+        box-shadow: 0 14px 34px rgba(0, 0, 0, .4);
+        -webkit-backdrop-filter: blur(12px) saturate(140%);
+        backdrop-filter: blur(12px) saturate(140%);
+        color: var(--text);
+        font-size: var(--fs-sm);
+        line-height: 1.35;
+    }
+
+    @media (orientation: portrait) and (max-width: 640px) {
+        .rotate { display: flex; }
+    }
+
+    .rotate p { margin: 0; flex: 1; }
+
+    .rotate__close {
+        flex: none;
+        width: 32px;
+        height: 32px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border: 0;
+        border-radius: 50%;
+        background: rgba(148, 163, 184, .14);
+        color: var(--text);
+        font: inherit;
+        font-size: 18px;
+        line-height: 1;
+        cursor: pointer;
+        touch-action: manipulation;
+    }
+
+    /* ============================================================
+       7. Accesibilidad: menos movimiento y más contraste
+       ============================================================ */
+    @media (prefers-reduced-motion: reduce) {
+        *, *::before, *::after {
+            animation-duration: .001ms !important;
+            animation-iteration-count: 1 !important;
+            transition-duration: .001ms !important;
+        }
+        .spinner { border-top-color: var(--accent); }
+    }
+
+    @media (prefers-contrast: more) {
+        :root { --border: rgba(226, 232, 240, .6); --muted: #cbd5e1; }
+        .toolbar { background: #0f172a; }
+    }
+
+    /* ============================================================
+       8. Impresión / pantallas sin color
+       ============================================================ */
+    @media print {
+        .toolbar, .rotate, .overlay { display: none !important; }
+    }
+</style>
 </head>
-<body class="flex items-center justify-center">
+<body>
 
-    <!-- Iframe adaptado para ser 100% responsivo y ocupar toda la pantalla -->
-    <iframe 
-        src="https://www.things-workshop.com/embed/how-does-an-led-make-light/" 
-        title="How does an LED make light?: interactive model from Things Workshop" 
-        class="fullscreen-iframe"
-        loading="lazy" 
-        allow="autoplay; fullscreen; xr-spatial-tracking"
-        allowfullscreen>
-    </iframe>
+<div class="app" id="app">
 
+    <main class="stage" aria-label="Modelo interactivo: cómo funciona un LED">
+        <iframe
+            id="frame"
+            class="frame"
+            src="https://www.things-workshop.com/embed/how-does-an-led-make-light/"
+            title="Cómo un LED produce luz: modelo interactivo de Things Workshop"
+            loading="eager"
+            allow="autoplay; fullscreen; xr-spatial-tracking"
+            referrerpolicy="no-referrer-when-downgrade"
+            allowfullscreen>
+        </iframe>
+
+        <!-- Estado de carga -->
+        <div class="overlay" id="loader" role="status" aria-live="polite">
+            <div class="spinner" aria-hidden="true"></div>
+            <p class="overlay__title">Cargando modelo interactivo…</p>
+            <p class="overlay__hint">Toca, arrastra y gira las piezas del modelo para descubrir cómo se genera la luz.</p>
+        </div>
+
+        <!-- Estado de error / sin conexión -->
+        <div class="overlay overlay--error" id="error" role="alert" hidden>
+            <svg class="ico" style="width:36px;height:36px;stroke:#fbbf24" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/>
+                <path d="M12 9v4"/><path d="M12 17h.01"/>
+            </svg>
+            <p class="overlay__title">No pudimos cargar el modelo</p>
+            <p class="overlay__hint" id="errorDetail">Comprueba tu conexión a internet y vuelve a intentarlo.</p>
+            <div class="overlay__actions">
+                <button class="action" id="retry" type="button">Reintentar</button>
+                <a class="action action--ghost"
+                   href="https://www.things-workshop.com/embed/how-does-an-led-make-light/"
+                   target="_blank" rel="noopener noreferrer">Abrir aparte</a>
+            </div>
+        </div>
+    </main>
+
+    <!-- Controles -->
+    <div class="toolbar" id="toolbar" role="toolbar" aria-label="Controles del modelo">
+        <button class="btn" id="fsBtn" type="button" aria-pressed="false"
+                aria-label="Pantalla completa" title="Pantalla completa (F)">
+            <svg class="ico ico--enter" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M8 3H5a2 2 0 0 0-2 2v3"/>
+                <path d="M16 3h3a2 2 0 0 1 2 2v3"/>
+                <path d="M3 16v3a2 2 0 0 0 2 2h3"/>
+                <path d="M21 16v3a2 2 0 0 1-2 2h-3"/>
+            </svg>
+            <svg class="ico ico--exit" viewBox="0 0 24 24" aria-hidden="true" hidden>
+                <path d="M9 3v4a2 2 0 0 1-2 2H3"/>
+                <path d="M21 9h-4a2 2 0 0 1-2-2V3"/>
+                <path d="M3 15h4a2 2 0 0 1 2 2v4"/>
+                <path d="M15 21v-4a2 2 0 0 1 2-2h4"/>
+            </svg>
+            <span class="btn__label">Pantalla completa</span>
+        </button>
+
+        <button class="btn" id="reloadBtn" type="button" title="Recargar el modelo (R)" aria-label="Recargar el modelo">
+            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M20.5 12a8.5 8.5 0 1 1-2.49-6.01"/>
+                <path d="M20.5 4.5V11H14"/>
+            </svg>
+            <span class="btn__label">Recargar</span>
+        </button>
+
+        <a class="btn" id="openBtn"
+           href="https://www.things-workshop.com/embed/how-does-an-led-make-light/"
+           target="_blank" rel="noopener noreferrer"
+           title="Abrir el modelo en una pestaña nueva"
+           aria-label="Abrir el modelo en una pestaña nueva">
+            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M14 4h6v6"/>
+                <path d="M20 4 10.5 13.5"/>
+                <path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/>
+            </svg>
+            <span class="btn__label">Abrir aparte</span>
+        </a>
+    </div>
+
+    <!-- Sugerencia de orientación -->
+    <aside class="rotate" id="rotate" hidden>
+        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true">
+            <rect x="7" y="2" width="10" height="20" rx="2.5"/>
+            <path d="M11 18.5h2"/>
+        </svg>
+        <p>Gira el dispositivo para ver el modelo con más espacio.</p>
+        <button class="rotate__close" id="rotateClose" type="button" aria-label="Cerrar la sugerencia">×</button>
+    </aside>
+</div>
+
+<noscript>
+    <div style="position:fixed;inset:0;display:grid;place-content:center;gap:16px;padding:24px;text-align:center;background:#0b0f14;color:#e2e8f0;font-family:system-ui,sans-serif">
+        <p style="margin:0;font-size:1.1rem">Este modelo interactivo necesita JavaScript activado.</p>
+        <p style="margin:0;color:#94a3b8">
+            También puedes abrirlo directamente en
+            <a href="https://www.things-workshop.com/embed/how-does-an-led-make-light/"
+               target="_blank" rel="noopener noreferrer" style="color:#38bdf8">Things Workshop</a>.
+        </p>
+    </div>
+</noscript>
+
+<script>
+(function () {
+    'use strict';
+
+    var app        = document.getElementById('app');
+    var frame      = document.getElementById('frame');
+    var loader     = document.getElementById('loader');
+    var error      = document.getElementById('error');
+    var errorDetail = document.getElementById('errorDetail');
+    var retryBtn   = document.getElementById('retry');
+    var fsBtn      = document.getElementById('fsBtn');
+    var reloadBtn  = document.getElementById('reloadBtn');
+    var rotate     = document.getElementById('rotate');
+    var rotateClose = document.getElementById('rotateClose');
+
+    var MODEL_SRC = frame.getAttribute('src');
+    var TIMEOUT_MS = 20000;
+    var HINT_KEY = 'led:rotate-hint-dismissed';
+
+    var loaded = false;
+    var timer = null;
+
+    /* ------------------------------------------------------------
+       Alto real del área visible (barras del navegador, plegables,
+       teclado en pantalla y cambios de orientación).
+       ------------------------------------------------------------ */
+    var rafId = 0;
+    function syncHeight() {
+        cancelAnimationFrame(rafId);
+        rafId = requestAnimationFrame(function () {
+            var vv = window.visualViewport;
+            var h = Math.round((vv && vv.height) || window.innerHeight);
+            if (h > 0) document.documentElement.style.setProperty('--app-h', h + 'px');
+        });
+    }
+
+    window.addEventListener('resize', syncHeight, { passive: true });
+    window.addEventListener('orientationchange', syncHeight);
+    if (window.visualViewport) {
+        window.visualViewport.addEventListener('resize', syncHeight, { passive: true });
+    }
+    syncHeight();
+
+    /* ------------------------------------------------------------
+       Estados de carga y error
+       ------------------------------------------------------------ */
+    function showLoader() {
+        error.hidden = true;
+        loader.hidden = false;
+        loader.classList.remove('is-hidden');
+    }
+
+    function hideLoader() {
+        if (loader.hidden) return;
+        loader.classList.add('is-hidden');
+        window.setTimeout(function () { loader.hidden = true; }, 450);
+    }
+
+    function showError(kind) {
+        if (loaded) return;
+        loader.classList.add('is-hidden');
+        loader.hidden = true;
+        errorDetail.textContent = (kind === 'offline')
+            ? 'Parece que no hay conexión a internet. Vuelve a intentarlo cuando recuperes la señal.'
+            : 'La conexión ha tardado demasiado o el servicio no está disponible. Revisa tu red e inténtalo de nuevo.';
+        error.hidden = false;
+    }
+
+    function startTimer() {
+        window.clearTimeout(timer);
+        timer = window.setTimeout(function () {
+            if (!loaded) showError(navigator.onLine ? 'timeout' : 'offline');
+        }, TIMEOUT_MS);
+    }
+
+    function reloadModel() {
+        loaded = false;
+        window.clearTimeout(timer);
+        showLoader();
+        startTimer();
+        var glue = MODEL_SRC.indexOf('?') === -1 ? '?' : '&';
+        frame.setAttribute('src', MODEL_SRC + glue + 'r=' + Date.now());
+    }
+
+    frame.addEventListener('load', function () {
+        if (!frame.getAttribute('src') || frame.getAttribute('src') === 'about:blank') return;
+        loaded = true;
+        window.clearTimeout(timer);
+        hideLoader();
+        error.hidden = true;
+    });
+
+    window.addEventListener('offline', function () {
+        if (!loaded) showError('offline');
+    });
+
+    window.addEventListener('online', function () {
+        if (!loaded) reloadModel();
+    });
+
+    retryBtn.addEventListener('click', reloadModel);
+    reloadBtn.addEventListener('click', reloadModel);
+
+    /* ------------------------------------------------------------
+       Pantalla completa (con prefijos para Safari antiguo)
+       ------------------------------------------------------------ */
+    function fsElement() {
+        return document.fullscreenElement || document.webkitFullscreenElement || null;
+    }
+
+    var canFullscreen = !!(app.requestFullscreen || app.webkitRequestFullscreen || app.webkitRequestFullScreen);
+    var isStandalone = window.matchMedia('(display-mode: standalone)').matches ||
+                       window.navigator.standalone === true;
+
+    if (!canFullscreen || isStandalone) {
+        fsBtn.hidden = true;
+    }
+
+    function syncFullscreenUI() {
+        var active = !!fsElement();
+        fsBtn.setAttribute('aria-pressed', active ? 'true' : 'false');
+        fsBtn.title = active ? 'Salir de pantalla completa (F)' : 'Pantalla completa (F)';
+        fsBtn.setAttribute('aria-label', active ? 'Salir de pantalla completa' : 'Pantalla completa');
+        fsBtn.querySelector('.ico--enter').hidden = active;
+        fsBtn.querySelector('.ico--exit').hidden = !active;
+        fsBtn.querySelector('.btn__label').textContent = active ? 'Salir' : 'Pantalla completa';
+        syncHeight();
+    }
+
+    function toggleFullscreen() {
+        if (fsElement()) {
+            (document.exitFullscreen || document.webkitExitFullscreen || function () {}).call(document);
+            return;
+        }
+        var el = app;
+        var request = el.requestFullscreen || el.webkitRequestFullscreen || el.webkitRequestFullScreen;
+        if (!request) return;
+        var result = request.call(el, { navigationUI: 'hide' });
+        if (result && typeof result.catch === 'function') result.catch(function () { /* bloqueado por el navegador */ });
+    }
+
+    fsBtn.addEventListener('click', toggleFullscreen);
+    document.addEventListener('fullscreenchange', syncFullscreenUI);
+    document.addEventListener('webkitfullscreenchange', syncFullscreenUI);
+
+    /* ------------------------------------------------------------
+       Atajos de teclado (solo con el foco fuera del iframe)
+       ------------------------------------------------------------ */
+    window.addEventListener('keydown', function (e) {
+        if (e.ctrlKey || e.metaKey || e.altKey) return;
+        var tag = (e.target && e.target.tagName) || '';
+        if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+        var key = e.key ? e.key.toLowerCase() : '';
+        if (key === 'f') { e.preventDefault(); toggleFullscreen(); }
+        if (key === 'r') { e.preventDefault(); reloadModel(); }
+    });
+
+    /* ------------------------------------------------------------
+       Sugerencia de rotación: una sola vez por dispositivo
+       ------------------------------------------------------------ */
+    var portraitPhone = window.matchMedia('(orientation: portrait) and (max-width: 640px)');
+
+    function hintDismissed() {
+        try { return window.localStorage.getItem(HINT_KEY) === '1'; }
+        catch (e) { return false; }
+    }
+
+    function dismissHint() {
+        rotate.hidden = true;
+        try { window.localStorage.setItem(HINT_KEY, '1'); } catch (e) { /* modo privado */ }
+    }
+
+    if (portraitPhone.matches && !hintDismissed() && !isStandalone) {
+        rotate.hidden = false;
+        window.setTimeout(function () {
+            if (!rotate.hidden) dismissHint();
+        }, 10000);
+    }
+
+    rotateClose.addEventListener('click', dismissHint);
+
+    portraitPhone.addEventListener('change', function () {
+        if (!portraitPhone.matches) rotate.hidden = true;
+    });
+
+    startTimer();
+
+    /* Si el dispositivo ya está sin red, damos el aviso de inmediato en vez
+       de dejar al usuario mirando un spinner. */
+    if (navigator.onLine === false) {
+        window.setTimeout(function () { showError('offline'); }, 600);
+    }
+})();
+</script>
 </body>
 </html>

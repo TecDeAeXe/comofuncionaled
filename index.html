@@ -113,7 +113,39 @@
     }
 
     /* ============================================================
-       4. Capas de estado: cargando / error
+       4. Móvil: altura extra para el modelo
+       ------------------------------------------------------------
+       El modelo incrustado pasa a su maquetación de teléfono por debajo
+       de 870 px de ancho y ahí reserva 342 px para el gráfico de
+       corriente. Con la altura de un móvil eso dejaba el visor 3D del LED
+       en unos 22 px, así que se le concede la escena que su propio diseño
+       espera (730 px) y la página pasa a desplazarse en vertical.
+       ============================================================ */
+    @media (max-width: 869px) {
+        html { height: auto; }
+
+        body {
+            height: auto;
+            overflow-x: hidden;
+            overflow-y: auto;
+            overscroll-behavior-y: contain;
+        }
+
+        .app {
+            position: relative;
+            inset: auto;
+            height: auto;
+        }
+
+        .stage {
+            position: relative;
+            height: 1420px;                              /* respaldo */
+            height: max(calc(100svh + 342px), 1420px);
+        }
+    }
+
+    /* ============================================================
+       5. Capas de estado: cargando / error
        ============================================================ */
     .overlay {
         position: absolute;
@@ -202,14 +234,13 @@
     }
 
     .action:focus-visible,
-    .btn:focus-visible,
-    .rotate__close:focus-visible {
+    .btn:focus-visible {
         outline: 2px solid var(--accent);
         outline-offset: 2px;
     }
 
     /* ============================================================
-       5. Barra de herramientas flotante
+       6. Barra de herramientas flotante
        ============================================================ */
     .toolbar {
         position: absolute;
@@ -295,57 +326,37 @@
     }
 
     /* ============================================================
-       6. Sugerencia de rotación (solo teléfonos en vertical)
+       7. Ajustes finales de móvil
+       ------------------------------------------------------------
+       Va al final del archivo a propósito: fija la posición de las capas
+       que en el resto de la hoja son absolutas.
        ============================================================ */
-    .rotate {
-        position: absolute;
-        z-index: 25;
-        top: max(var(--ui-inset), env(safe-area-inset-top));
-        left: max(var(--ui-inset), env(safe-area-inset-left));
-        right: max(var(--ui-inset), env(safe-area-inset-right));
-        margin-inline: auto;
-        display: none;
-        align-items: center;
-        gap: 10px;
-        max-width: min(92vw, 420px);
-        padding: 11px 13px;
-        border: 1px solid var(--border);
-        border-radius: var(--radius);
-        background: var(--surface);
-        box-shadow: 0 14px 34px rgba(0, 0, 0, .4);
-        -webkit-backdrop-filter: blur(12px) saturate(140%);
-        backdrop-filter: blur(12px) saturate(140%);
-        color: var(--text);
-        font-size: var(--fs-sm);
-        line-height: 1.35;
-    }
+    @media (max-width: 869px) {
+        /* Los estados de carga y error se centran en la pantalla, no en la página */
+        .overlay {
+            position: fixed;
+            overscroll-behavior: contain;
+        }
 
-    @media (orientation: portrait) and (max-width: 640px) {
-        .rotate { display: flex; }
-    }
+        /* La barra deja el borde inferior libre: ahí están los controles del modelo */
+        .toolbar {
+            position: fixed;
+            top: max(var(--ui-inset), env(safe-area-inset-top));
+            bottom: auto;
+            padding: 4px;
+            gap: 2px;
+            --btn-size: 44px;
+        }
 
-    .rotate p { margin: 0; flex: 1; }
-
-    .rotate__close {
-        flex: none;
-        width: 32px;
-        height: 32px;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        border: 0;
-        border-radius: 50%;
-        background: rgba(148, 163, 184, .14);
-        color: var(--text);
-        font: inherit;
-        font-size: 18px;
-        line-height: 1;
-        cursor: pointer;
-        touch-action: manipulation;
+        /* Se aparta mientras se desplaza para no tapar el gráfico */
+        .toolbar.is-dim {
+            opacity: 0;
+            pointer-events: none;
+        }
     }
 
     /* ============================================================
-       7. Accesibilidad: menos movimiento y más contraste
+       8. Accesibilidad: menos movimiento y más contraste
        ============================================================ */
     @media (prefers-reduced-motion: reduce) {
         *, *::before, *::after {
@@ -362,10 +373,10 @@
     }
 
     /* ============================================================
-       8. Impresión / pantallas sin color
+       9. Impresión / pantallas sin color
        ============================================================ */
     @media print {
-        .toolbar, .rotate, .overlay { display: none !important; }
+        .toolbar, .overlay { display: none !important; }
     }
 </style>
 </head>
@@ -449,16 +460,6 @@
             <span class="btn__label">Abrir aparte</span>
         </a>
     </div>
-
-    <!-- Sugerencia de orientación -->
-    <aside class="rotate" id="rotate" hidden>
-        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true">
-            <rect x="7" y="2" width="10" height="20" rx="2.5"/>
-            <path d="M11 18.5h2"/>
-        </svg>
-        <p>Gira el dispositivo para ver el modelo con más espacio.</p>
-        <button class="rotate__close" id="rotateClose" type="button" aria-label="Cerrar la sugerencia">×</button>
-    </aside>
 </div>
 
 <noscript>
@@ -484,12 +485,10 @@
     var retryBtn   = document.getElementById('retry');
     var fsBtn      = document.getElementById('fsBtn');
     var reloadBtn  = document.getElementById('reloadBtn');
-    var rotate     = document.getElementById('rotate');
-    var rotateClose = document.getElementById('rotateClose');
+    var toolbar    = document.getElementById('toolbar');
 
     var MODEL_SRC = frame.getAttribute('src');
     var TIMEOUT_MS = 20000;
-    var HINT_KEY = 'led:rotate-hint-dismissed';
 
     var loaded = false;
     var timer = null;
@@ -576,6 +575,21 @@
     reloadBtn.addEventListener('click', reloadModel);
 
     /* ------------------------------------------------------------
+       En móvil la página se desplaza: la barra se aparta al bajar y
+       vuelve al subir, para no tapar el gráfico ni los controles.
+       ------------------------------------------------------------ */
+    var lastScrollY = 0;
+    window.addEventListener('scroll', function () {
+        var y = window.scrollY || window.pageYOffset || 0;
+        if (y < 80 || y < lastScrollY - 4) {
+            toolbar.classList.remove('is-dim');
+        } else if (y > lastScrollY + 4) {
+            toolbar.classList.add('is-dim');
+        }
+        lastScrollY = y;
+    }, { passive: true });
+
+    /* ------------------------------------------------------------
        Pantalla completa (con prefijos para Safari antiguo)
        ------------------------------------------------------------ */
     function fsElement() {
@@ -630,33 +644,8 @@
     });
 
     /* ------------------------------------------------------------
-       Sugerencia de rotación: una sola vez por dispositivo
+       Arranque
        ------------------------------------------------------------ */
-    var portraitPhone = window.matchMedia('(orientation: portrait) and (max-width: 640px)');
-
-    function hintDismissed() {
-        try { return window.localStorage.getItem(HINT_KEY) === '1'; }
-        catch (e) { return false; }
-    }
-
-    function dismissHint() {
-        rotate.hidden = true;
-        try { window.localStorage.setItem(HINT_KEY, '1'); } catch (e) { /* modo privado */ }
-    }
-
-    if (portraitPhone.matches && !hintDismissed() && !isStandalone) {
-        rotate.hidden = false;
-        window.setTimeout(function () {
-            if (!rotate.hidden) dismissHint();
-        }, 10000);
-    }
-
-    rotateClose.addEventListener('click', dismissHint);
-
-    portraitPhone.addEventListener('change', function () {
-        if (!portraitPhone.matches) rotate.hidden = true;
-    });
-
     startTimer();
 
     /* Si el dispositivo ya está sin red, damos el aviso de inmediato en vez
